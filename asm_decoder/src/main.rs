@@ -14,31 +14,24 @@ fn main() {
         let others_opcode = (byte1 & 0b11111100) >> 2;
         if immediate_opcode == 0b1011 {
             let w = (byte1 & 0b00001000) >> 3;
-            let reg = (byte1 & 0b00000111);
-            if w == 1 {
-                println!(
-                    "{:b}, {:b}",
-                    (buf[byte_idx + 2] as u16) << 8,
-                    (buf[byte_idx + 1] as u16)
-                );
+            let reg = byte1 & 0b00000111;
+            let data = if w == 1 {
                 let data = buf[byte_idx + 1] as u16 | ((buf[byte_idx + 2] as u16) << 8);
-                println!(
-                    "{} {}, {}",
-                    decode_opcode(immediate_opcode),
-                    decode_reg(reg, w),
-                    data
-                );
                 byte_idx += 2;
+                data.to_string()
             } else {
                 let data = buf[byte_idx + 1];
-                println!(
-                    "{} {}, {}",
-                    decode_opcode(immediate_opcode),
-                    decode_reg(reg, w),
-                    data
-                );
                 byte_idx += 1;
-            }
+                data.to_string()
+            };
+            print_op(
+                decode_opcode(immediate_opcode),
+                decode_reg(reg, w),
+                &data,
+                false,
+                false,
+                None,
+            );
         } else {
             let decoded_opcode = decode_opcode(others_opcode);
             let d = (byte1 & 0b00000010) >> 1;
@@ -52,51 +45,88 @@ fn main() {
                 0b00 => {
                     let mut disp_lo = None;
                     if rm == 0b110 {
-                        disp_lo = Some(0);
+                        disp_lo = Some((buf[byte_idx + 2]).to_string());
                         byte_idx += 1;
                     }
-                    println!(
-                        "{} {}, {}",
+                    print_op(
                         decoded_opcode,
-                        decode_memory(rm, w, disp_lo, None),
                         decode_reg(reg, w),
+                        decode_memory(rm),
+                        d == 0,
+                        true,
+                        disp_lo.as_deref(),
                     );
                 }
                 // memory 8bit displacement
                 0b01 => {
-                    let disp_lo = 0;
-                    let disp_hi = 0;
-                    byte_idx += 2;
-                    println!(
-                        "{} {}, {}",
+                    print_op(
                         decoded_opcode,
-                        decode_memory(rm, w, Some(disp_lo), Some(disp_hi)),
                         decode_reg(reg, w),
+                        decode_memory(rm),
+                        d == 0,
+                        true,
+                        Some(&(buf[byte_idx + 2]).to_string()),
                     );
+                    byte_idx += 1;
                 }
                 // memory 16bit displacement
                 0b10 => {
-                    println!(
-                        "{} {}, {}",
+                    print_op(
                         decoded_opcode,
-                        decode_memory(rm, w, None, None),
                         decode_reg(reg, w),
+                        decode_memory(rm),
+                        d == 0,
+                        true,
+                        Some(
+                            &(buf[byte_idx + 2] as u16 | ((buf[byte_idx + 3] as u16) << 8))
+                                .to_string(),
+                        ),
                     );
+                    byte_idx += 2;
                 }
                 // reg reg
                 0b11 => {
-                    println!(
-                        "{} {}, {}",
+                    print_op(
                         decoded_opcode,
-                        decode_reg(rm, w),
                         decode_reg(reg, w),
+                        decode_reg(rm, w),
+                        d == 0,
+                        false,
+                        None,
                     );
                 }
-                _ => panic!("Illegal mod encodinc"),
+                _ => panic!("Illegal mod encoding"),
             }
             byte_idx += 1;
         }
         byte_idx += 1;
+    }
+}
+
+fn print_op<'a>(
+    opcode: &'a str,
+    dest: &'a str,
+    source: &'a str,
+    swap: bool,
+    memory: bool,
+    disp: Option<&'a str>,
+) {
+    if memory {
+        if let Some(disp) = disp {
+            if swap {
+                println!("{} [{} + {}], {}", opcode, source, disp, dest);
+            } else {
+                println!("{} {}, [{} + {}]", opcode, dest, source, disp);
+            }
+        } else if swap {
+            println!("{} [{}], {}", opcode, source, dest);
+        } else {
+            println!("{} {}, [{}]", opcode, dest, source);
+        }
+    } else if swap {
+        println!("{} {}, {}", opcode, source, dest);
+    } else {
+        println!("{} {}, {}", opcode, dest, source);
     }
 }
 
@@ -170,6 +200,16 @@ fn decode_reg(reg: u8, w: u8) -> &'static str {
     }
 }
 
-fn decode_memory(rm: u8, w: u8, disp_lo: Option<u8>, disp_hi: Option<u8>) -> &'static str {
-    "memory"
+fn decode_memory(rm: u8) -> &'static str {
+    match rm {
+        0b000 => "bx + si",
+        0b001 => "bx + di",
+        0b010 => "bp + si",
+        0b011 => "bp + di",
+        0b100 => "si",
+        0b101 => "di",
+        0b110 => "bp",
+        0b111 => "bx",
+        _ => panic!("R/M wrong encoding: {:b}", rm),
+    }
 }
