@@ -1,7 +1,12 @@
-use std::{fs::File, io::Read};
+use std::{env, fs::File, io::Read};
 
 fn main() {
-    let mut file = File::open("./complex_mov").expect("File to be present");
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        println!("No file specified");
+        return;
+    }
+    let mut file = File::open(&args[1]).expect("File to be present");
     let metadata = file.metadata().unwrap();
     let capacity = metadata.len() as usize;
     let mut buf = Vec::with_capacity(capacity);
@@ -16,7 +21,7 @@ fn main() {
             let w = (byte1 & 0b00001000) >> 3;
             let reg = byte1 & 0b00000111;
             let data = if w == 1 {
-                let data = buf[byte_idx + 1] as u16 | ((buf[byte_idx + 2] as u16) << 8);
+                let data = buf[byte_idx + 1] as i16 | ((buf[byte_idx + 2] as i16) << 8);
                 byte_idx += 2;
                 data.to_string()
             } else {
@@ -45,7 +50,8 @@ fn main() {
                 0b00 => {
                     let mut disp_lo = None;
                     if rm == 0b110 {
-                        disp_lo = Some((buf[byte_idx + 2]).to_string());
+                        let disp = buf[byte_idx + 2] as i8;
+                        disp_lo = Some((disp >= 0, disp.abs().to_string()));
                         byte_idx += 1;
                     }
                     print_op(
@@ -54,33 +60,32 @@ fn main() {
                         decode_memory(rm),
                         d == 0,
                         true,
-                        disp_lo.as_deref(),
+                        disp_lo.as_ref().map(|(b, v)| (*b, v.as_str())),
                     );
                 }
                 // memory 8bit displacement
                 0b01 => {
+                    let disp = buf[byte_idx + 2] as i8;
                     print_op(
                         decoded_opcode,
                         decode_reg(reg, w),
                         decode_memory(rm),
                         d == 0,
                         true,
-                        Some(&(buf[byte_idx + 2]).to_string()),
+                        Some((disp >= 0, &disp.abs().to_string())),
                     );
                     byte_idx += 1;
                 }
                 // memory 16bit displacement
                 0b10 => {
+                    let disp = buf[byte_idx + 2] as i16 | ((buf[byte_idx + 3] as i16) << 8);
                     print_op(
                         decoded_opcode,
                         decode_reg(reg, w),
                         decode_memory(rm),
                         d == 0,
                         true,
-                        Some(
-                            &(buf[byte_idx + 2] as u16 | ((buf[byte_idx + 3] as u16) << 8))
-                                .to_string(),
-                        ),
+                        Some((disp >= 0, &disp.abs().to_string())),
                     );
                     byte_idx += 2;
                 }
@@ -109,14 +114,15 @@ fn print_op<'a>(
     source: &'a str,
     swap: bool,
     memory: bool,
-    disp: Option<&'a str>,
+    disp: Option<(bool, &'a str)>,
 ) {
     if memory {
         if let Some(disp) = disp {
+            let op = if disp.0 { "+" } else { "-" };
             if swap {
-                println!("{} [{} + {}], {}", opcode, source, disp, dest);
+                println!("{} [{} {} {}], {}", opcode, source, op, disp.1, dest);
             } else {
-                println!("{} {}, [{} + {}]", opcode, dest, source, disp);
+                println!("{} {}, [{} {} {}]", opcode, dest, source, op, disp.1);
             }
         } else if swap {
             println!("{} [{}], {}", opcode, source, dest);
